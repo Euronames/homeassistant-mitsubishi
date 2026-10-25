@@ -13,7 +13,7 @@
     "pymitsubishi"
   ],
   "requirements": [
-    "pymitsubishi==0.6.1"
+    "pymitsubishi @ https://github.com/Euronames/pymitsubishi/archive/e7aee96c23d9da5929fe8e7eb0e644c4085c262f.zip#sha256=e9d7b69c064f60292a9b964655004ddeda727db837beb2aaed9a2be215f76242"
   ],
-  "version": "0.6.1"
+  "version": "0.6.2.dev2026102501"
 }

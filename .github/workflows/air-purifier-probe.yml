@@ -57,11 +57,41 @@ jobs:
         with:
           python-version: "3.14.2"
 
-      - name: "Install the focused test environment and local library checkout"
+      - name: "Install the focused test environment"
         run: >-
           python -m pip install
           -r integration/requirements-probe-test.txt
-          -e ./library
+
+      - name: "Install the exact deployment package through Home Assistant's installer"
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          import homeassistant
+          from homeassistant.util.package import install_package
+          from packaging.requirements import Requirement
+
+          manifest = json.loads(Path("integration/custom_components/mitsubishi/manifest.json").read_text())
+          assert manifest["version"] == "0.6.2.dev2026102501"
+          assert len(manifest["requirements"]) == 1
+          requirement = manifest["requirements"][0]
+          parsed = Requirement(requirement)
+          assert parsed.name == "pymitsubishi"
+          archive_url, fragment = parsed.url.rsplit("#", 1)
+          expected = (
+              f"https://github.com/{os.environ['LIBRARY_REPOSITORY']}/archive/"
+              f"{os.environ['LIBRARY_REVISION']}.zip"
+          )
+          assert archive_url == expected
+          assert re.fullmatch(r"sha256=[0-9a-f]{64}", fragment)
+          constraints = Path(homeassistant.__file__).with_name("package_constraints.txt")
+          assert constraints.is_file()
+          if not install_package(requirement, constraints=str(constraints), timeout=60):
+              raise SystemExit("Home Assistant could not install the pinned deployment archive")
+          PY
 
       - name: "Check dependency consistency"
         run: python -m pip check
@@ -70,19 +100,35 @@ jobs:
         run: |
           python - <<'PY'
           import inspect
-          from importlib.metadata import version
+          import json
+          from importlib.metadata import distribution, version
           from pathlib import Path
           import sys
 
+          from awesomeversion import AwesomeVersion
+          from homeassistant.util.package import is_installed
+          from packaging.requirements import Requirement
           import pymitsubishi
           from pymitsubishi import MitsubishiController
 
           assert sys.version_info[:3] == (3, 14, 2)
           assert version("homeassistant") == "2026.10.3"
           assert version("pytest-homeassistant-custom-component") == "0.13.374"
-          library = Path("library").resolve()
-          assert Path(pymitsubishi.__file__).resolve().is_relative_to(library)
-          assert Path(inspect.getfile(MitsubishiController.fetch_air_purifier_status)).resolve().is_relative_to(library)
+          manifest = json.loads(Path("integration/custom_components/mitsubishi/manifest.json").read_text())
+          assert version("pymitsubishi") == pymitsubishi.__version__ == manifest["version"]
+          assert AwesomeVersion("0.6.1") < AwesomeVersion(manifest["version"]) < AwesomeVersion("0.6.2")
+          assert not is_installed("pymitsubishi==0.6.1"), "Rollback must require the official package"
+          source_checkout = Path("library").resolve()
+          assert not Path(pymitsubishi.__file__).resolve().is_relative_to(source_checkout)
+          assert not Path(inspect.getfile(MitsubishiController.fetch_air_purifier_status)).resolve().is_relative_to(source_checkout)
+          requirement = Requirement(manifest["requirements"][0])
+          archive_url, expected_hash = requirement.url.rsplit("#sha256=", 1)
+          origin = json.loads(distribution("pymitsubishi").read_text("direct_url.json"))
+          assert origin["url"] == archive_url
+          archive_info = origin["archive_info"]
+          installed_hash = archive_info.get("hashes", {}).get("sha256") or archive_info.get("hash", "").removeprefix("sha256=")
+          assert installed_hash == expected_hash
+          print("Verified installed deployment package:", version("pymitsubishi"), archive_url, expected_hash)
           PY
 
       - name: "Record resolved package versions for review"
@@ -93,7 +139,8 @@ jobs:
         env:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: >-
-          python -m pytest -p pytest_socket -o addopts=
+          python -P -m pytest -p pytest_socket -o addopts=
+          -o pythonpath= --import-mode=importlib
           --disable-socket --allow-unix-socket
           tests -q
 
