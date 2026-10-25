@@ -99,11 +99,16 @@ jobs:
       - name: "Verify the intended Core, plugin and library are actually imported"
         run: |
           python - <<'PY'
+          import hashlib
           import inspect
+          import io
           import json
           from importlib.metadata import distribution, version
+          import os
           from pathlib import Path
           import sys
+          import urllib.request
+          import zipfile
 
           from awesomeversion import AwesomeVersion
           from homeassistant.util.package import is_installed
@@ -126,8 +131,28 @@ jobs:
           origin = json.loads(distribution("pymitsubishi").read_text("direct_url.json"))
           assert origin["url"] == archive_url
           archive_info = origin["archive_info"]
+          print("Installer archive metadata:", json.dumps(archive_info, sort_keys=True))
+          with urllib.request.urlopen(archive_url, timeout=60) as response:
+              archive_bytes = response.read()
+          assert hashlib.sha256(archive_bytes).hexdigest() == expected_hash, "Downloaded archive checksum mismatch"
+          package_root = Path(pymitsubishi.__file__).resolve().parent
+          prefix = f"pymitsubishi-{os.environ['LIBRARY_REVISION']}/pymitsubishi/"
+          with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+              expected_modules = {
+                  name.removeprefix(prefix): archive.read(name)
+                  for name in archive.namelist()
+                  if name.startswith(prefix) and name.endswith(".py")
+              }
+              installed_modules = {path.relative_to(package_root).as_posix() for path in package_root.rglob("*.py")}
+              assert expected_modules and installed_modules == set(expected_modules), "Installed module inventory mismatch"
+              for name, content in expected_modules.items():
+                  assert (package_root / name).read_bytes() == content, f"Installed source mismatch: {name}"
           installed_hash = archive_info.get("hashes", {}).get("sha256") or archive_info.get("hash", "").removeprefix("sha256=")
-          assert installed_hash == expected_hash
+          if installed_hash:
+              assert installed_hash == expected_hash, f"Recorded archive hash mismatch: {installed_hash}"
+          else:
+              print("Installer did not record a SHA-256; archive and installed source were independently verified")
+          print("Verified installed Python modules:", len(expected_modules))
           print("Verified installed deployment package:", version("pymitsubishi"), archive_url, expected_hash)
           PY
 
