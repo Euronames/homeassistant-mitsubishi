@@ -100,10 +100,10 @@ async def test_old_library_fails_only_when_probe_is_invoked(hass):
         await invoke(hass)
 
 
-async def test_non_admin_cannot_probe_device(hass, hass_owner):
+async def test_non_admin_cannot_probe_device(hass, hass_owner_user):
     # Core automatically makes the first normal user the owner; seed that user
     # through the fixture before creating the genuinely unprivileged account.
-    assert hass_owner.is_owner
+    assert hass_owner_user.is_owner
     _, probe = setup_probe(hass)
     user = await hass.auth.async_create_user("Non-admin")
     assert not user.is_admin
