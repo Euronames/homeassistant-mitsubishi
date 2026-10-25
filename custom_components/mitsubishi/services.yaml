@@ -1,0 +1,15 @@
+read_air_purifier_status:
+  name: "Read air purifier status (experimental)"
+  description: >-
+    Make a manual, read-only HVAC options request through the Wi-Fi adapter.
+    Requires administrator access and the matching experimental pymitsubishi
+    library. A not_returned result does not establish that the device lacks
+    support. Does not change HVAC settings or the cloud connection.
+  fields:
+    config_entry_id:
+      name: "Configuration entry"
+      description: "The loaded Mitsubishi configuration entry to query."
+      required: true
+      selector:
+        config_entry:
+          integration: mitsubishi

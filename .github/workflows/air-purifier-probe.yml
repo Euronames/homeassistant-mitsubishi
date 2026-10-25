@@ -1,0 +1,103 @@
+name: "Air purifier read-probe tests"
+
+on:
+  workflow_dispatch:
+    inputs:
+      library_repository:
+        description: "Approved public library fork in owner/repository form"
+        required: true
+        type: string
+      library_revision:
+        description: "Full 40-character commit SHA of the paired library changes"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-read-probe:
+    name: "Read probe / HA 2026.10.3 / Python 3.14.2"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      LIBRARY_REPOSITORY: "${{ inputs.library_repository }}"
+      LIBRARY_REVISION: "${{ inputs.library_revision }}"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - name: "Validate explicit library source"
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+
+          if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", os.environ["LIBRARY_REPOSITORY"]):
+              raise SystemExit("Expected an explicit owner/repository, not a URL")
+          if not re.fullmatch(r"[0-9a-fA-F]{40}", os.environ["LIBRARY_REVISION"]):
+              raise SystemExit("Expected an immutable full commit SHA, not a moving branch")
+          PY
+
+      - name: "Check out integration at the selected workflow commit"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: "${{ github.sha }}"
+          path: integration
+          persist-credentials: false
+
+      - name: "Check out the paired experimental library"
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: "${{ inputs.library_repository }}"
+          ref: "${{ inputs.library_revision }}"
+          path: library
+          persist-credentials: false
+
+      - name: "Set up compatible Python"
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.14.2"
+
+      - name: "Install the focused test environment and local library checkout"
+        run: >-
+          python -m pip install
+          -r integration/requirements-probe-test.txt
+          -e ./library
+
+      - name: "Check dependency consistency"
+        run: python -m pip check
+
+      - name: "Verify the intended Core, plugin and library are actually imported"
+        run: |
+          python - <<'PY'
+          import inspect
+          from importlib.metadata import version
+          from pathlib import Path
+          import sys
+
+          import pymitsubishi
+          from pymitsubishi import MitsubishiController
+
+          assert sys.version_info[:3] == (3, 14, 2)
+          assert version("homeassistant") == "2026.10.3"
+          assert version("pytest-homeassistant-custom-component") == "0.13.374"
+          library = Path("library").resolve()
+          assert Path(pymitsubishi.__file__).resolve().is_relative_to(library)
+          assert Path(inspect.getfile(MitsubishiController.fetch_air_purifier_status)).resolve().is_relative_to(library)
+          PY
+
+      - name: "Record resolved package versions for review"
+        run: python -m pip freeze
+
+      - name: "Run all library regression tests with network disabled"
+        working-directory: library
+        run: >-
+          python -m pytest -o addopts=
+          --disable-socket --allow-unix-socket
+          tests -q
+
+      - name: "Run focused Home Assistant service tests with network disabled"
+        working-directory: integration
+        run: >-
+          python -m pytest -o addopts=
+          --disable-socket --allow-unix-socket
+          tests/test_services.py -q

@@ -24,6 +24,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import MitsubishiDataUpdateCoordinator
+from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -119,6 +120,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Forward the setup to platforms
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+        async_setup_services(hass)
+
         return True
 
     except Exception as ex:
@@ -155,6 +158,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # Close API connection
         await hass.async_add_executor_job(coordinator.controller.api.close)
+
+        async_unload_services(hass)
 
     return unload_ok
 

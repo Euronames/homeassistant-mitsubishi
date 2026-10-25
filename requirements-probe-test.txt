@@ -1,0 +1,6 @@
+# Focused external test environment matching the installed Core version.
+# This is not a production dependency pin or a fully hashed transitive lockfile.
+homeassistant==2026.10.3
+pytest-homeassistant-custom-component==0.13.374
+voluptuous==0.15.2
+pycryptodome==4.2.0
