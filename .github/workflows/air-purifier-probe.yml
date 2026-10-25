@@ -90,8 +90,10 @@ jobs:
 
       - name: "Run all library regression tests with network disabled"
         working-directory: library
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         run: >-
-          python -m pytest -o addopts=
+          python -m pytest -p pytest_socket -o addopts=
           --disable-socket --allow-unix-socket
           tests -q
 
